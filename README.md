@@ -31,6 +31,15 @@ Set `DISCORD_TOKEN_FILE` in `.env` to the absolute path of that token file.
 Then deploy a published SemVer release:
 
 ```sh
+make deploy
+```
+
+With no `VERSION`, deployment discovers the newest strict SemVer release tag on
+`origin`, pulls it, displays its immutable image digest, and asks for confirmation
+before replacing the running container. To deploy a known version without the
+interactive confirmation, specify it explicitly:
+
+```sh
 make deploy VERSION=v1.2.3
 ```
 
