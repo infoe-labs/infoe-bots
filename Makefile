@@ -50,7 +50,9 @@ deploy:
 	mode=$$(stat -c '%a' "$$token_file"); \
 	[ "$$mode" = 600 ] || { echo 'Discord token file must have mode 0600' >&2; exit 2; }; \
 	tmp_dir=$$(mktemp -d); \
-	trap 'rm -rf "$$tmp_dir"' EXIT HUP INT TERM; \
+	trap 'rm -rf "$$tmp_dir"' EXIT; \
+	trap 'exit 130' INT; \
+	trap 'exit 143' HUP TERM; \
 	asset_url="https://github.com/$(REPOSITORY)/releases/download/$$version/infoe-bots-linux-amd64"; \
 	echo "Downloading $$version release assets..."; \
 	curl --fail --location --silent --show-error --proto '=https' --tlsv1.2 --output "$$tmp_dir/infoe-bots-linux-amd64" "$$asset_url"; \
