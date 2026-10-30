@@ -1,0 +1,7 @@
+.git
+.github
+.env
+.secrets
+Dockerfile*
+Makefile
+README.md
