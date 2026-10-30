@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
-	"time"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/infoe-labs/infoe-bots/lib/sqlcache"
@@ -15,7 +14,7 @@ const (
 	featureName = "llm_promoter"
 
 	// Cooldown duration between messages to the same user (6 hours)
-	cooldownDuration = 6 * time.Hour
+	cooldownDuration = sqlcache.CooldownRetention
 )
 
 var (

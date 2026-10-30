@@ -94,3 +94,42 @@ func fileMode(t *testing.T, path string) os.FileMode {
 	}
 	return info.Mode().Perm()
 }
+
+func TestCooldownExpiryRemovesHistoryButPreservesOptOuts(t *testing.T) {
+	resetForTest()
+	t.Cleanup(resetForTest)
+	t.Setenv("HOME", t.TempDir())
+	if err := Initialize("test-token"); err != nil {
+		t.Fatal(err)
+	}
+	if err := AddOptOut("opted-out", "llm_promoter"); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	mu.Lock()
+	lastSent = map[string]map[string]time.Time{
+		"expired": {"llm_promoter": now.Add(-CooldownRetention)},
+		"recent":  {"llm_promoter": now.Add(-time.Hour), "old-feature": now.Add(-24 * time.Hour)},
+	}
+	pruneCooldownsLocked(now)
+	_, expiredRetained := lastSent["expired"]
+	recentCount := len(lastSent["recent"])
+	mu.Unlock()
+	if expiredRetained {
+		t.Fatal("expired pseudonym retained")
+	}
+	if recentCount != 1 {
+		t.Fatal("expected only recent cooldown to remain")
+	}
+	optedOut, err := HasOptedOut("opted-out", "llm_promoter")
+	if err != nil || !optedOut {
+		t.Fatalf("opt-out was not preserved: %v", err)
+	}
+	mu.Lock()
+	pruneCooldownsLocked(now.Add(CooldownRetention))
+	remaining := len(lastSent)
+	mu.Unlock()
+	if remaining != 0 {
+		t.Fatal("expired history remains")
+	}
+}

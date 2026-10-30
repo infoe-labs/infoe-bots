@@ -14,6 +14,9 @@ import (
 
 const dataVersion = 2
 
+// CooldownRetention is the maximum useful lifetime of response history.
+const CooldownRetention = 6 * time.Hour
+
 // persistedData intentionally contains no raw Discord identifiers, message
 // content, usernames, timestamps, guild IDs, or channel IDs.
 type persistedData struct {
@@ -34,6 +37,7 @@ var (
 	identifierKey []byte
 	dataFile      string
 	initialized   bool
+	cleanupStop   chan struct{}
 )
 
 // Initialize configures privacy-preserving local persistence. The Discord token
@@ -80,6 +84,8 @@ func Initialize(discordToken string) error {
 		}
 	}
 	initialized = true
+	cleanupStop = make(chan struct{})
+	go cleanupCooldowns(cleanupStop)
 	return nil
 }
 
@@ -229,6 +235,35 @@ func RemoveOptOut(userID, feature string) error {
 	return saveLocked()
 }
 
+// pruneCooldownsLocked drops expired timestamps and their unused pseudonyms.
+func pruneCooldownsLocked(now time.Time) {
+	for key, features := range lastSent {
+		for feature, sent := range features {
+			if !now.Before(sent.Add(CooldownRetention)) {
+				delete(features, feature)
+			}
+		}
+		if len(features) == 0 {
+			delete(lastSent, key)
+		}
+	}
+}
+
+func cleanupCooldowns(stop <-chan struct{}) {
+	ticker := time.NewTicker(time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-stop:
+			return
+		case <-ticker.C:
+			mu.Lock()
+			pruneCooldownsLocked(time.Now())
+			mu.Unlock()
+		}
+	}
+}
+
 // RecordMessageSent retains cooldown state in memory only. It is discarded on
 // every restart and is never included in the persistent opt-out file.
 func RecordMessageSent(userID, feature string) error {
@@ -238,6 +273,7 @@ func RecordMessageSent(userID, feature string) error {
 		return err
 	}
 
+	pruneCooldownsLocked(time.Now())
 	key := pseudonym(userID)
 	if lastSent[key] == nil {
 		lastSent[key] = make(map[string]time.Time)
@@ -254,13 +290,17 @@ func CanSendMessage(userID, feature string, cooldown time.Duration) bool {
 	}
 
 	last, exists := lastSent[pseudonym(userID)][feature]
-	return !exists || time.Since(last) > cooldown
+	return !exists || time.Since(last) >= cooldown
 }
 
 // resetForTest prevents test state from crossing test cases.
 func resetForTest() {
 	mu.Lock()
 	defer mu.Unlock()
+	if cleanupStop != nil {
+		close(cleanupStop)
+		cleanupStop = nil
+	}
 	data = persistedData{}
 	lastSent = nil
 	identifierKey = nil

@@ -102,3 +102,8 @@ retained in shell history or exposed through process listings.
 Create releases by pushing strict SemVer tags such as `v1.2.3`. GitHub-hosted
 Actions test the code and publish the corresponding binary and SHA-256 checksum
 as GitHub Release assets.
+
+Cooldown history stays in memory for six hours and is removed by a cleanup task
+that runs every minute, including while the bot is idle. Expired entries are also
+removed when recording a new response. Opt-out preferences do not expire, so
+cleanup never opts users back into unwanted messages.
