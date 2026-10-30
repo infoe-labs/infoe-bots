@@ -8,14 +8,16 @@ BINARY ?= $(HOME)/.local/bin/infoe-bots
 SESSION ?= infoe-bots
 LOG_FILE ?= $(HOME)/.local/state/infoe-bots/infoe-bots.log
 
-.PHONY: help test build deploy
+.PHONY: help test build deploy status logs
 
 help:
 	@printf '%s\n' \
 	  'make test' \
 	  'make build VERSION=v1.2.3' \
 	  'make deploy  # confirm the latest release' \
-	  'make deploy VERSION=v1.2.3'
+	  'make deploy VERSION=v1.2.3' \
+	  'make status' \
+	  'make logs'
 
 test:
 	go test ./...
@@ -48,10 +50,14 @@ deploy:
 	mode=$$(stat -c '%a' "$$token_file"); \
 	[ "$$mode" = 600 ] || { echo 'Discord token file must have mode 0600' >&2; exit 2; }; \
 	tmp_dir=$$(mktemp -d); \
-	trap 'rm -rf "$$tmp_dir"' EXIT HUP INT TERM; \
+	trap 'rm -rf "$$tmp_dir"' EXIT; \
+	trap 'exit 130' INT; \
+	trap 'exit 143' HUP TERM; \
 	asset_url="https://github.com/$(REPOSITORY)/releases/download/$$version/infoe-bots-linux-amd64"; \
-	curl --fail --location --proto '=https' --tlsv1.2 --output "$$tmp_dir/infoe-bots-linux-amd64" "$$asset_url"; \
-	curl --fail --location --proto '=https' --tlsv1.2 --output "$$tmp_dir/infoe-bots-linux-amd64.sha256" "$$asset_url.sha256"; \
+	echo "Downloading $$version release assets..."; \
+	curl --fail --location --silent --show-error --proto '=https' --tlsv1.2 --output "$$tmp_dir/infoe-bots-linux-amd64" "$$asset_url"; \
+	curl --fail --location --silent --show-error --proto '=https' --tlsv1.2 --output "$$tmp_dir/infoe-bots-linux-amd64.sha256" "$$asset_url.sha256"; \
+	echo 'Verifying checksum and embedded version...'; \
 	(cd "$$tmp_dir" && sha256sum --check infoe-bots-linux-amd64.sha256); \
 	chmod 755 "$$tmp_dir/infoe-bots-linux-amd64"; \
 	actual_version=$$("$$tmp_dir/infoe-bots-linux-amd64" --version); \
@@ -65,12 +71,18 @@ deploy:
 	binary='$(BINARY)'; \
 	log_file='$(LOG_FILE)'; \
 	mkdir -p "$$(dirname "$$binary")" "$$(dirname "$$log_file")"; \
+	echo "Installing $$binary..."; \
 	had_old=false; \
 	if [ -f "$$binary" ]; then cp -p "$$binary" "$$binary.previous"; had_old=true; fi; \
 	mv "$$tmp_dir/infoe-bots-linux-amd64" "$$binary.new"; \
 	mv "$$binary.new" "$$binary"; \
-	screen -S '$(SESSION)' -X quit >/dev/null 2>&1 || true; \
-	if screen -L -Logfile "$$log_file" -DmS '$(SESSION)' "$$binary" --discord-token-file "$$token_file" all; then \
+	if screen -ls 2>/dev/null | grep -Eq '[.]$(SESSION)[[:space:]]'; then \
+	  echo 'Stopping the previous screen session...'; \
+	  screen -S '$(SESSION)' -X quit; \
+	fi; \
+	echo 'Starting the bot in a detached screen session...'; \
+	if screen -L -Logfile "$$log_file" -dmS '$(SESSION)' "$$binary" --discord-token-file "$$token_file" all; then \
+	  echo 'Waiting 3 seconds for the startup check...'; \
 	  sleep 3; \
 	  if screen -ls 2>/dev/null | grep -Eq '[.]$(SESSION)[[:space:]]'; then \
 	    rm -f "$$binary.previous"; \
@@ -82,7 +94,15 @@ deploy:
 	echo 'New process exited during startup' >&2; \
 	if [ "$$had_old" = true ]; then \
 	  mv "$$binary.previous" "$$binary"; \
-	  screen -L -Logfile "$$log_file" -DmS '$(SESSION)' "$$binary" --discord-token-file "$$token_file" all; \
+	  screen -L -Logfile "$$log_file" -dmS '$(SESSION)' "$$binary" --discord-token-file "$$token_file" all; \
 	  echo 'Restored the previous binary' >&2; \
 	fi; \
 	exit 1
+
+status:
+	@if [ -x '$(BINARY)' ]; then '$(BINARY)' --version; else echo 'Binary is not installed'; fi
+	@if screen -ls 2>/dev/null | grep -Eq '[.]$(SESSION)[[:space:]]'; then echo 'Screen session $(SESSION) is running'; else echo 'Screen session $(SESSION) is not running'; exit 1; fi
+
+logs:
+	@[ -f '$(LOG_FILE)' ] || { echo 'No log file exists yet' >&2; exit 1; }
+	tail -n 100 -f '$(LOG_FILE)'

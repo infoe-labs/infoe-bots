@@ -49,6 +49,15 @@ The deployment installs the binary under `~/.local/bin` and runs it in a detache
 `~/.local/state/infoe-bots`. If the replacement exits during startup, the previous
 binary is restored and restarted.
 
+Check the deployed version and process state, or follow the bot's stdout/stderr:
+
+```sh
+make status
+make logs
+```
+
+Press `Ctrl-C` to stop following logs; this does not stop the bot.
+
 Create releases by pushing strict SemVer tags such as `v1.2.3`. GitHub-hosted
 Actions test the code and publish the corresponding binary and SHA-256 checksum
 as GitHub Release assets.
