@@ -13,6 +13,7 @@ help:
 	@printf '%s\n' \
 	  'make test' \
 	  'make build VERSION=v1.2.3' \
+	  'make deploy  # confirm the latest release' \
 	  'make deploy VERSION=v1.2.3'
 
 test:
@@ -26,6 +27,16 @@ build:
 deploy:
 	@set -eu; \
 	version='$(VERSION)'; \
+	confirm=false; \
+	if [ -z "$$version" ]; then \
+	  version=$$(git ls-remote --tags --refs origin 'refs/tags/v*' \
+	    | sed 's#.*refs/tags/##' \
+	    | grep -E '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$$' \
+	    | sort -V \
+	    | tail -n 1); \
+	  [ -n "$$version" ] || { echo 'No strict SemVer release tags found on origin' >&2; exit 2; }; \
+	  confirm=true; \
+	fi; \
 	printf '%s' "$$version" | grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$$' || { echo 'VERSION must be strict SemVer, for example v1.2.3' >&2; exit 2; }; \
 	token_file='$(DISCORD_TOKEN_FILE)'; \
 	[ -n "$$token_file" ] || { echo 'Set DISCORD_TOKEN_FILE in .env or on the make command line' >&2; exit 2; }; \
@@ -34,6 +45,11 @@ deploy:
 	[ "$$mode" = 600 ] || { echo 'Discord token file must have mode 0600' >&2; exit 2; }; \
 	docker pull '$(IMAGE):'"$$version"; \
 	image=$$(docker image inspect --format '{{index .RepoDigests 0}}' '$(IMAGE):'"$$version"); \
+	if [ "$$confirm" = true ]; then \
+	  printf 'Deploy latest release %s (%s)? [y/N] ' "$$version" "$$image"; \
+	  read -r answer; \
+	  case "$$answer" in y|Y|yes|YES) ;; *) echo 'Deployment cancelled'; exit 0 ;; esac; \
+	fi; \
 	docker rm -f '$(CONTAINER)-next' >/dev/null 2>&1 || true; \
 	had_old=false; \
 	if docker inspect '$(CONTAINER)' >/dev/null 2>&1; then had_old=true; docker stop '$(CONTAINER)' >/dev/null; fi; \
