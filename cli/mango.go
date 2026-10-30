@@ -8,10 +8,10 @@ import (
 
 var mangoCmd = &cobra.Command{
 	Use:   "mango",
-	Short: "Replies if someone replies to mango",
-	Long:  "N/A",
+	Short: "Run the opt-in legacy mango joke bot",
+	Long:  "A preserved legacy joke subcommand. It is not registered by the all command and runs only when explicitly invoked.",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("Running mango function")
+		fmt.Println("Running legacy mango joke bot")
 		mango.Mango(DiscordToken)
 	},
 }

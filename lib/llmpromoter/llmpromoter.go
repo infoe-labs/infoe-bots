@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
-	"time"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/infoe-labs/infoe-bots/lib/sqlcache"
@@ -15,7 +14,7 @@ const (
 	featureName = "llm_promoter"
 
 	// Cooldown duration between messages to the same user (6 hours)
-	cooldownDuration = 6 * time.Hour
+	cooldownDuration = sqlcache.CooldownRetention
 )
 
 var (
@@ -24,11 +23,6 @@ var (
 	// "ChatGPT is not down" or questions like "how are your Claude tokens?"
 	llmComplaintRegex = regexp.MustCompile(`(?i)(?:^|\s|[.!?])(?:(?:(?:(?:my|the)\s+)?(?:claude|chatgpt|gpt-?4|windsurf|cursor|anthropic|openai|bard|gemini|llama-?2|mistral|copilot)\s+(?:is|seems|appears|has\s+been)\s+(?:(?:really|very|so|too|extremely|incredibly|unusually|currently|still|again)\s+)?(?:down|slow|unavailable|broken|unresponsive|laggy|stuck|hanging|crashing|failing|glitching|malfunctioning|problematic|acting\s+up|not\s+(?:working|responding|loading|functioning)|having\s+(?:issues|problems|difficulties|outages|downtime)))|(?:(?:can'?t|cannot|couldn'?t|unable\s+to)\s+(?:access|use|connect\s+to|log\s+into|get\s+(?:into|to\s+work)|reach)\s+(?:my|the)?\s*(?:claude|chatgpt|gpt-?4|windsurf|cursor|anthropic|openai|bard|gemini|llama-?2|mistral|copilot))|(?:(?:having|experiencing|running\s+into|facing|dealing\s+with|encountered|got)\s+(?:(?:some|major|serious|significant|constant|persistent|recurring|ongoing|frustrating)\s+)?(?:issues?|problems?|difficulties|errors?|troubles?|glitches?|bugs?|outages?|downtime|connectivity\s+problems?|performance\s+issues?|technical\s+difficulties|service\s+disruptions?)\s+(?:with|using|on|connecting\s+to)\s+(?:my|the)?\s*(?:claude|chatgpt|gpt-?4|windsurf|cursor|anthropic|openai|bard|gemini|llama-?2|mistral|copilot))|(?:(?:claude|chatgpt|gpt-?4|windsurf|cursor|anthropic|openai|bard|gemini|llama-?2|mistral|copilot)\s+(?:keeps?|constantly|repeatedly|always|still)\s+(?:crashing|failing|timing\s+out|disconnecting|giving\s+(?:me\s+)?errors?|not\s+(?:working|responding|loading)|being\s+(?:slow|unresponsive|down|unavailable)))|(?:(?:hit|reached|exceeded|maxed\s+out|used\s+up|depleted|ran\s+out\s+of|exhausted)\s+(?:my|the)\s+(?:rate\s+limits?|token\s+limits?|usage\s+limits?|quota|credits|daily\s+limits?|monthly\s+limits?|api\s+limits?)\s+(?:on|for|with)\s+(?:claude|chatgpt|gpt-?4|windsurf|cursor|anthropic|openai|bard|gemini|llama-?2|mistral|copilot))|(?:(?:claude|chatgpt|gpt-?4|windsurf|cursor|anthropic|openai|bard|gemini|llama-?2|mistral|copilot)\s+(?:outage|downtime|maintenance|service\s+disruption|technical\s+issues?|is\s+(?:down|offline|unavailable|not\s+(?:working|available|accessible|responding|loading)))))`)
 )
-
-// Initialize the SQLite cache
-func init() {
-	sqlcache.Initialize()
-}
 
 // HandleReactionAdd handles the reaction add event to opt out users
 func HandleReactionAdd(s *discordgo.Session, r *discordgo.MessageReactionAdd) {

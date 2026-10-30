@@ -1,212 +1,309 @@
 package sqlcache
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"sync"
 	"time"
 )
 
-// OptOutData represents the structure of our opt-out data
-type OptOutData struct {
-	Users    map[string]map[string]time.Time // map[userID]map[feature]timestamp
-	LastSent map[string]map[string]time.Time // map[userID]map[feature]lastMessageTimestamp
+const dataVersion = 2
+
+// CooldownRetention is the maximum useful lifetime of response history.
+const CooldownRetention = 6 * time.Hour
+
+// persistedData intentionally contains no raw Discord identifiers, message
+// content, usernames, timestamps, guild IDs, or channel IDs.
+type persistedData struct {
+	Version int                 `json:"version"`
+	OptOuts map[string][]string `json:"opt_outs"`
+}
+
+// legacyData is read only to migrate the original raw-ID format in place.
+type legacyData struct {
+	Users    map[string]map[string]time.Time `json:"Users"`
+	LastSent map[string]map[string]time.Time `json:"LastSent"`
 }
 
 var (
-	optOutData OptOutData
-	fileMutex  sync.RWMutex
-	dataFile   string
-	once       sync.Once
+	mu            sync.RWMutex
+	data          persistedData
+	lastSent      map[string]map[string]time.Time
+	identifierKey []byte
+	dataFile      string
+	initialized   bool
+	cleanupStop   chan struct{}
 )
 
-// Initialize creates and initializes the file-based persistence
-func Initialize() {
-	once.Do(func() {
-		// Create data directory if it doesn't exist
-		dataDir := filepath.Join(os.Getenv("HOME"), ".infoe-bots")
-		if err := os.MkdirAll(dataDir, 0755); err != nil {
-			return
-		}
+// Initialize configures privacy-preserving local persistence. The Discord token
+// is used only as an HMAC key and is never written by this package. Rotating the
+// token intentionally makes the old pseudonyms unlinkable.
+func Initialize(discordToken string) error {
+	mu.Lock()
+	defer mu.Unlock()
 
-		// Set the data file path
-		dataFile = filepath.Join(dataDir, "opt-outs.json")
-
-		// Initialize the opt-out data structure
-		optOutData = OptOutData{
-			Users:    make(map[string]map[string]time.Time),
-			LastSent: make(map[string]map[string]time.Time),
-		}
-
-		// Load existing data if available
-		loadData()
-	})
-}
-
-// loadData loads opt-out data from the JSON file
-func loadData() {
-	fileMutex.Lock()
-	defer fileMutex.Unlock()
-
-	// Check if the file exists
-	if _, err := os.Stat(dataFile); os.IsNotExist(err) {
-		// File doesn't exist, nothing to load
-		return
+	if initialized {
+		return nil
+	}
+	if discordToken == "" {
+		return errors.New("identifier key is empty")
 	}
 
-	// Read the file
-	data, err := os.ReadFile(dataFile)
+	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		return
+		return errors.New("resolve local data directory")
+	}
+	dataDir := filepath.Join(homeDir, ".infoe-bots")
+	if err := os.MkdirAll(dataDir, 0700); err != nil {
+		return errors.New("create local data directory")
+	}
+	if err := os.Chmod(dataDir, 0700); err != nil {
+		return errors.New("secure local data directory")
 	}
 
-	// Parse the JSON data
-	if err := json.Unmarshal(data, &optOutData); err != nil {
-		return
-	}
-}
+	identifierKey = []byte(discordToken)
+	dataFile = filepath.Join(dataDir, "opt-outs.json")
+	data = persistedData{Version: dataVersion, OptOuts: make(map[string][]string)}
+	lastSent = make(map[string]map[string]time.Time)
 
-// saveDataLocked saves opt-out data while the caller holds fileMutex.
-func saveDataLocked() error {
-	// Convert data to JSON
-	data, err := json.MarshalIndent(optOutData, "", "  ")
+	migrated, err := loadLocked()
 	if err != nil {
 		return err
 	}
-
-	// Write to file
-	if err := os.WriteFile(dataFile, data, 0600); err != nil {
-		return err
+	if err := os.Chmod(dataFile, 0600); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return errors.New("secure local opt-out data")
 	}
-
-	return nil
-}
-
-// AddOptOut adds a user to the opt-out list for a specific feature
-func AddOptOut(userID, feature string) error {
-	Initialize()
-
-	fileMutex.Lock()
-	defer fileMutex.Unlock()
-
-	// Initialize user's feature map if it doesn't exist
-	if optOutData.Users[userID] == nil {
-		optOutData.Users[userID] = make(map[string]time.Time)
-	}
-
-	// Add the opt-out with current timestamp
-	optOutData.Users[userID][feature] = time.Now()
-
-	// Save to file
-	err := saveDataLocked()
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-// HasOptedOut checks if a user has opted out of a specific feature
-func HasOptedOut(userID, feature string) (bool, error) {
-	Initialize()
-
-	fileMutex.RLock()
-	defer fileMutex.RUnlock()
-
-	// Check if user exists in opt-out data
-	userFeatures, exists := optOutData.Users[userID]
-	if !exists {
-		return false, nil
-	}
-
-	// Check if feature exists in user's opt-outs
-	_, optedOut := userFeatures[feature]
-	return optedOut, nil
-}
-
-// RemoveOptOut removes a user from the opt-out list for a specific feature
-func RemoveOptOut(userID, feature string) error {
-	Initialize()
-
-	fileMutex.Lock()
-	defer fileMutex.Unlock()
-
-	// Check if user exists in opt-out data
-	if userFeatures, exists := optOutData.Users[userID]; exists {
-		// Remove the feature from user's opt-outs
-		delete(userFeatures, feature)
-
-		// If user has no more opt-outs, remove the user
-		if len(userFeatures) == 0 {
-			delete(optOutData.Users, userID)
-		}
-
-		// Save to file
-		err := saveDataLocked()
-		if err != nil {
+	if migrated {
+		if err := saveLocked(); err != nil {
 			return err
 		}
 	}
+	initialized = true
+	cleanupStop = make(chan struct{})
+	go cleanupCooldowns(cleanupStop)
 	return nil
 }
 
-// ListOptOuts lists all opt-outs for debugging
-func ListOptOuts() map[string][]string {
-	fileMutex.RLock()
-	defer fileMutex.RUnlock()
+func pseudonym(userID string) string {
+	digest := hmac.New(sha256.New, identifierKey)
+	_, _ = digest.Write([]byte("discord-user:" + userID))
+	return hex.EncodeToString(digest.Sum(nil))
+}
 
-	result := make(map[string][]string)
-	for userID, features := range optOutData.Users {
-		featureList := []string{}
-		for feature := range features {
-			featureList = append(featureList, feature)
+func loadLocked() (bool, error) {
+	raw, err := os.ReadFile(dataFile)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, errors.New("read local opt-out data")
+	}
+
+	var versionProbe struct {
+		Version int `json:"version"`
+	}
+	if err := json.Unmarshal(raw, &versionProbe); err != nil {
+		return false, errors.New("decode local opt-out data")
+	}
+	if versionProbe.Version == dataVersion {
+		if err := json.Unmarshal(raw, &data); err != nil {
+			return false, errors.New("decode local opt-out data")
 		}
-		result[userID] = featureList
+		if data.OptOuts == nil {
+			data.OptOuts = make(map[string][]string)
+		}
+		return false, nil
 	}
-	return result
+
+	var legacy legacyData
+	if err := json.Unmarshal(raw, &legacy); err != nil {
+		return false, errors.New("decode legacy opt-out data")
+	}
+	for userID, features := range legacy.Users {
+		key := pseudonym(userID)
+		for feature := range features {
+			data.OptOuts[key] = appendUnique(data.OptOuts[key], feature)
+		}
+	}
+	// Legacy LastSent timestamps are deliberately discarded instead of migrated.
+	return true, nil
 }
 
-// RecordMessageSent records when a message was sent to a user for a specific feature
+func saveLocked() error {
+	raw, err := json.MarshalIndent(data, "", "  ")
+	if err != nil {
+		return errors.New("encode local opt-out data")
+	}
+
+	tempFile, err := os.CreateTemp(filepath.Dir(dataFile), ".opt-outs-*")
+	if err != nil {
+		return errors.New("create temporary opt-out data")
+	}
+	tempName := tempFile.Name()
+	defer os.Remove(tempName)
+
+	if err := tempFile.Chmod(0600); err != nil {
+		tempFile.Close()
+		return errors.New("secure temporary opt-out data")
+	}
+	if _, err := tempFile.Write(raw); err != nil {
+		tempFile.Close()
+		return errors.New("write temporary opt-out data")
+	}
+	if err := tempFile.Sync(); err != nil {
+		tempFile.Close()
+		return errors.New("sync temporary opt-out data")
+	}
+	if err := tempFile.Close(); err != nil {
+		return errors.New("close temporary opt-out data")
+	}
+	if err := os.Rename(tempName, dataFile); err != nil {
+		return errors.New("replace local opt-out data")
+	}
+	return nil
+}
+
+func requireInitialized() error {
+	if !initialized {
+		return errors.New("privacy store is not initialized")
+	}
+	return nil
+}
+
+func appendUnique(values []string, value string) []string {
+	for _, existing := range values {
+		if existing == value {
+			return values
+		}
+	}
+	return append(values, value)
+}
+
+// AddOptOut persists only a token-keyed pseudonym and feature name.
+func AddOptOut(userID, feature string) error {
+	mu.Lock()
+	defer mu.Unlock()
+	if err := requireInitialized(); err != nil {
+		return err
+	}
+
+	key := pseudonym(userID)
+	data.OptOuts[key] = appendUnique(data.OptOuts[key], feature)
+	return saveLocked()
+}
+
+func HasOptedOut(userID, feature string) (bool, error) {
+	mu.RLock()
+	defer mu.RUnlock()
+	if err := requireInitialized(); err != nil {
+		return false, err
+	}
+
+	for _, optedOutFeature := range data.OptOuts[pseudonym(userID)] {
+		if optedOutFeature == feature {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func RemoveOptOut(userID, feature string) error {
+	mu.Lock()
+	defer mu.Unlock()
+	if err := requireInitialized(); err != nil {
+		return err
+	}
+
+	key := pseudonym(userID)
+	features := data.OptOuts[key]
+	filtered := features[:0]
+	for _, existing := range features {
+		if existing != feature {
+			filtered = append(filtered, existing)
+		}
+	}
+	if len(filtered) == 0 {
+		delete(data.OptOuts, key)
+	} else {
+		data.OptOuts[key] = filtered
+	}
+	return saveLocked()
+}
+
+// pruneCooldownsLocked drops expired timestamps and their unused pseudonyms.
+func pruneCooldownsLocked(now time.Time) {
+	for key, features := range lastSent {
+		for feature, sent := range features {
+			if !now.Before(sent.Add(CooldownRetention)) {
+				delete(features, feature)
+			}
+		}
+		if len(features) == 0 {
+			delete(lastSent, key)
+		}
+	}
+}
+
+func cleanupCooldowns(stop <-chan struct{}) {
+	ticker := time.NewTicker(time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-stop:
+			return
+		case <-ticker.C:
+			mu.Lock()
+			pruneCooldownsLocked(time.Now())
+			mu.Unlock()
+		}
+	}
+}
+
+// RecordMessageSent retains cooldown state in memory only. It is discarded on
+// every restart and is never included in the persistent opt-out file.
 func RecordMessageSent(userID, feature string) error {
-	Initialize()
-
-	fileMutex.Lock()
-	defer fileMutex.Unlock()
-
-	// Initialize user's feature map if it doesn't exist
-	if optOutData.LastSent[userID] == nil {
-		optOutData.LastSent[userID] = make(map[string]time.Time)
+	mu.Lock()
+	defer mu.Unlock()
+	if err := requireInitialized(); err != nil {
+		return err
 	}
 
-	// Record current time
-	optOutData.LastSent[userID][feature] = time.Now()
-
-	// Save to file
-	return saveDataLocked()
+	pruneCooldownsLocked(time.Now())
+	key := pseudonym(userID)
+	if lastSent[key] == nil {
+		lastSent[key] = make(map[string]time.Time)
+	}
+	lastSent[key][feature] = time.Now()
+	return nil
 }
 
-// CanSendMessage checks if enough time has passed since the last message
-// Returns true if a message can be sent (cooldown period has passed or no previous message)
-func CanSendMessage(userID, feature string, cooldownDuration time.Duration) bool {
-	Initialize()
-
-	fileMutex.RLock()
-	defer fileMutex.RUnlock()
-
-	// Check if user exists in last sent data
-	userFeatures, exists := optOutData.LastSent[userID]
-	if !exists {
-		// No record of previous messages, can send
-		return true
+func CanSendMessage(userID, feature string, cooldown time.Duration) bool {
+	mu.RLock()
+	defer mu.RUnlock()
+	if !initialized {
+		return false
 	}
 
-	// Check if feature exists in user's last sent
-	lastSent, exists := userFeatures[feature]
-	if !exists {
-		// No record for this feature, can send
-		return true
-	}
+	last, exists := lastSent[pseudonym(userID)][feature]
+	return !exists || time.Since(last) >= cooldown
+}
 
-	// Check if cooldown period has passed
-	return time.Since(lastSent) > cooldownDuration
+// resetForTest prevents test state from crossing test cases.
+func resetForTest() {
+	mu.Lock()
+	defer mu.Unlock()
+	if cleanupStop != nil {
+		close(cleanupStop)
+		cleanupStop = nil
+	}
+	data = persistedData{}
+	lastSent = nil
+	identifierKey = nil
+	dataFile = ""
+	initialized = false
 }

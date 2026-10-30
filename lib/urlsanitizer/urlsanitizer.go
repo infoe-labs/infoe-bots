@@ -30,6 +30,46 @@ func rewriteInstagramReels(content string) (string, bool) {
 	return rewritten, found
 }
 
+// deletionNotice binds the deletion instruction to the original author's ID.
+func deletionNotice(userID string) string {
+	return fmt.Sprintf("\n\n<@%s>, react with ❌ (:x:) to delete this message.", userID)
+}
+
+func sendRepost(s *discordgo.Session, channelID, userID, content string) {
+	message, err := s.ChannelMessageSend(channelID, content+deletionNotice(userID))
+	if err == nil {
+		s.MessageReactionAdd(channelID, message.ID, "❌")
+	}
+}
+
+// HandleReactionAdd follows the existing reaction-handler pattern: fetch the
+// specific message, verify its author and purpose, then act on that message.
+func HandleReactionAdd(s *discordgo.Session, r *discordgo.MessageReactionAdd) {
+	if r == nil || r.MessageReaction == nil || s.State == nil || s.State.User == nil ||
+		r.UserID == s.State.User.ID || r.Emoji.Name != "❌" || r.Emoji.ID != "" {
+		return
+	}
+
+	message, err := s.ChannelMessage(r.ChannelID, r.MessageID)
+	if err != nil || !canDeleteRepost(message, s.State.User.ID, r.UserID) {
+		return
+	}
+
+	s.ChannelMessageDelete(r.ChannelID, r.MessageID)
+}
+
+func canDeleteRepost(message *discordgo.Message, botID, userID string) bool {
+	if message == nil || message.Author == nil || message.Author.ID != botID || userID == "" {
+		return false
+	}
+
+	// Match the bot-generated header, never a mention inside copied user text.
+	instagramHeader := fmt.Sprintf("📸 Instagram reel from <@%s>, converted for a better Discord embed:\n", userID)
+	twitterHeader := fmt.Sprintf("🔗 Converted to fxtwitter for better embeds (original message from <@%s>)\n\n", userID)
+	return (strings.HasPrefix(message.Content, instagramHeader) || strings.HasPrefix(message.Content, twitterHeader)) &&
+		strings.HasSuffix(message.Content, deletionNotice(userID))
+}
+
 func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 	// Ignore messages from the bot itself
 	if m.Author.ID == s.State.User.ID {
@@ -47,7 +87,7 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		}
 
 		message := fmt.Sprintf("📸 Instagram reel from <@%s>, converted for a better Discord embed:\n%s", m.Author.ID, rewritten)
-		s.ChannelMessageSend(m.ChannelID, message)
+		sendRepost(s, m.ChannelID, m.Author.ID, message)
 		return
 	}
 
@@ -95,7 +135,7 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 			message += fxURL
 
 			// Send the message
-			s.ChannelMessageSend(m.ChannelID, message)
+			sendRepost(s, m.ChannelID, m.Author.ID, message)
 			return
 		}
 	}
