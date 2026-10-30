@@ -71,6 +71,8 @@ deploy:
 	binary='$(BINARY)'; \
 	log_file='$(LOG_FILE)'; \
 	mkdir -p "$$(dirname "$$binary")" "$$(dirname "$$log_file")"; \
+	: > "$$log_file"; \
+	chmod 600 "$$log_file"; \
 	echo "Installing $$binary..."; \
 	had_old=false; \
 	if [ -f "$$binary" ]; then cp -p "$$binary" "$$binary.previous"; had_old=true; fi; \

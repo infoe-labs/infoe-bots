@@ -7,7 +7,9 @@ import (
 )
 
 func TestTokenFileLoading(t *testing.T) {
-	tokenFile := filepath.Join(t.TempDir(), "token")
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	tokenFile := filepath.Join(homeDir, "token")
 	if err := os.WriteFile(tokenFile, []byte("test-token\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -27,15 +29,20 @@ func TestTokenFileLoading(t *testing.T) {
 	}
 }
 
-func TestTokenSourcesAreMutuallyExclusive(t *testing.T) {
-	DiscordToken = "inline-token"
-	discordTokenFile = "/unused"
+func TestTokenFileMustBePrivate(t *testing.T) {
+	tokenFile := filepath.Join(t.TempDir(), "token")
+	if err := os.WriteFile(tokenFile, []byte("test-token\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	DiscordToken = ""
+	discordTokenFile = tokenFile
 	t.Cleanup(func() {
 		DiscordToken = ""
 		discordTokenFile = ""
 	})
 
 	if err := rootCmd.PersistentPreRunE(rootCmd, nil); err == nil {
-		t.Fatal("PersistentPreRunE() accepted two token sources")
+		t.Fatal("PersistentPreRunE() accepted an overly permissive token file")
 	}
 }

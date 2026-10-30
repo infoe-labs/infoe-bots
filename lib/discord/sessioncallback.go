@@ -12,9 +12,16 @@ func Call(DiscordToken string, handlers ...interface{}) {
 	// Create a new Discord session using the provided bot token.
 	dg, err := discordgo.New("Bot " + DiscordToken)
 	if err != nil {
-		fmt.Println("error creating Discord session,", err)
+		fmt.Println("Discord session setup failed")
 		return
 	}
+	// Retain only the bot's own READY identity instead of Discord's guild,
+	// channel, member, and private-channel state caches. Suppress discordgo's
+	// internal diagnostic logger because some upstream messages include event
+	// payloads or Discord resource identifiers.
+	dg.StateEnabled = false
+	dg.LogLevel = -1
+	dg.Debug = false
 
 	// Register each handler passed in as a callback for appropriate events.
 	for _, handler := range handlers {
@@ -27,7 +34,7 @@ func Call(DiscordToken string, handlers ...interface{}) {
 	// Open a websocket connection to Discord and begin listening.
 	err = dg.Open()
 	if err != nil {
-		fmt.Println("error opening connection,", err)
+		fmt.Println("Discord connection failed")
 		return
 	}
 

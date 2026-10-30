@@ -57,7 +57,7 @@ func replyBackToMangoReplyWithoutRole(s *discordgo.Session, m *discordgo.Message
 	// Fetch the channel information
 	channel, err := s.Channel(m.ChannelID)
 	if err != nil {
-		log.Println("Error getting the channel:", err)
+		log.Println("Discord operation failed: get channel")
 		return
 	}
 
@@ -69,7 +69,7 @@ func replyBackToMangoReplyWithoutRole(s *discordgo.Session, m *discordgo.Message
 	// Check if the user has the role 1248052023128231937
 	member, err := s.GuildMember(m.GuildID, m.Author.ID)
 	if err != nil {
-		log.Println("Error getting the member:", err)
+		log.Println("Discord operation failed: get member")
 		return
 	}
 
@@ -95,7 +95,7 @@ func replyBackToMangoReplyWithoutRole(s *discordgo.Session, m *discordgo.Message
 		if m.Message.ReferencedMessage != nil {
 			originalMessage, err = s.ChannelMessage(m.ChannelID, m.Message.ReferencedMessage.ID)
 			if err != nil {
-				log.Println("Error getting the original message:", err)
+				log.Println("Discord operation failed: get referenced message")
 				return
 			}
 		}
@@ -116,7 +116,7 @@ To prevent abuse, we limit this notice to once per day. Unsubscribe to future no
 			}
 			_, err := s.ChannelMessageSendComplex(m.ChannelID, reply)
 			if err != nil {
-				log.Println("Error sending the message:", err)
+				log.Println("Discord operation failed: send message")
 				return
 			}
 
@@ -132,7 +132,7 @@ func handleReactionAdd(s *discordgo.Session, r *discordgo.MessageReactionAdd) {
 	// Get the message to check if it's authored by the bot
 	message, err := s.ChannelMessage(r.ChannelID, r.MessageID)
 	if err != nil {
-		log.Println("Error getting the message:", err)
+		log.Println("Discord operation failed: get reaction message")
 		return
 	}
 
@@ -141,7 +141,7 @@ func handleReactionAdd(s *discordgo.Session, r *discordgo.MessageReactionAdd) {
 		// Add the role to the user who reacted
 		err := s.GuildMemberRoleAdd(r.GuildID, r.UserID, RoleToAssign)
 		if err != nil {
-			log.Println("Error adding role:", err)
+			log.Println("Discord operation failed: add role")
 		}
 	}
 }
