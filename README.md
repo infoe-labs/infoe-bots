@@ -10,9 +10,15 @@ Individual features remain available as subcommands:
 
 ```sh
 go run main.go --discord-token-file .secrets/discord-token ping
-go run main.go --discord-token-file .secrets/discord-token mango
 go run main.go --discord-token-file .secrets/discord-token urlsanitizer
 go run main.go --discord-token-file .secrets/discord-token llmpromoter
+```
+
+`mango` is a preserved legacy joke subcommand. It is not included in `all` and
+runs only when explicitly invoked:
+
+```sh
+go run main.go --discord-token-file .secrets/discord-token mango
 ```
 
 ## Binary deployment
