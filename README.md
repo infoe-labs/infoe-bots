@@ -15,7 +15,7 @@ go run main.go --discord-token "$DISCORD_TOKEN" urlsanitizer
 go run main.go --discord-token "$DISCORD_TOKEN" llmpromoter
 ```
 
-## Container deployment
+## Binary deployment
 
 Store the Discord token in a local file, not in this repository or directly in
 `.env`:
@@ -35,19 +35,20 @@ make deploy
 ```
 
 With no `VERSION`, deployment discovers the newest strict SemVer release tag on
-`origin`, pulls it, displays its immutable image digest, and asks for confirmation
-before replacing the running container. To deploy a known version without the
-interactive confirmation, specify it explicitly:
+`origin`, downloads the Linux/amd64 binary and checksum, verifies both the
+checksum and embedded version, and asks for confirmation before replacing the
+running process. To deploy a known version without the interactive confirmation,
+specify it explicitly:
 
 ```sh
 make deploy VERSION=v1.2.3
 ```
 
-The deployment pulls the public GHCR image, resolves it to an immutable digest,
-and runs it with a read-only filesystem, dropped capabilities, resource limits,
-and no published network ports. If the replacement fails to start, the previous
-container is restarted.
+The deployment installs the binary under `~/.local/bin` and runs it in a detached
+`screen` session named `infoe-bots`. Output is written under
+`~/.local/state/infoe-bots`. If the replacement exits during startup, the previous
+binary is restored and restarted.
 
 Create releases by pushing strict SemVer tags such as `v1.2.3`. GitHub-hosted
-Actions test the code and publish the corresponding image to
-`ghcr.io/infoe-labs/infoe-bots`.
+Actions test the code and publish the corresponding binary and SHA-256 checksum
+as GitHub Release assets.
