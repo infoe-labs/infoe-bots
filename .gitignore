@@ -2,3 +2,4 @@
 .env
 .secrets/
 *.swp
+/infoe-bots
