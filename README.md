@@ -21,6 +21,46 @@ runs only when explicitly invoked:
 go run main.go --discord-token-file .secrets/discord-token mango
 ```
 
+## URL sanitizer
+
+`urlsanitizer` rewrites social-media links for safer sharing and better embeds:
+Instagram reels become `kkinstagram` links, X/Twitter links become `fxtwitter`
+links, Facebook `/share/` links are removed with guidance to post a direct link,
+and profile-exposing TikTok links get a warning.
+
+### Deleting a repost by reaction
+
+When the bot replaces an Instagram reel or X/Twitter link with a rewritten
+version, the replacement message offers self-service deletion. The bot posts the
+message and pre-seeds a ❌ reaction so it can be clicked:
+
+```text
+🔗 Converted to fxtwitter for better embeds (original message from @someone)
+
+https://fxtwitter.com/someone/status/123
+
+@someone, react with ❌ (:x:) to delete this message.
+```
+
+Only the original author can delete their own repost. The author's Discord ID is
+carried inside the replacement message itself, in the bot-generated header and
+footer, so authorization is a text comparison against the message rather than a
+database lookup. No state is stored locally and the rule keeps working after a
+bot restart.
+
+A reaction deletes the message only when all of the following hold:
+
+- the reaction is the Unicode ❌ emoji, not a similarly named custom server emoji
+- the reaction was added by someone other than the bot
+- the reacted message was authored by this bot
+- the message begins with the bot-generated repost header naming that same user
+- the message ends with the matching deletion instruction for that same user
+
+The header and footer are matched as an anchored prefix and suffix, so a user
+cannot delete someone else's repost by copying the instruction into their own
+message, and a `:x:` reaction on any unrelated message is ignored. Deleting
+removes only the bot's replacement message.
+
 ## Binary deployment
 
 Store the Discord token in a local file, not in this repository or directly in
@@ -74,6 +114,10 @@ DiscordGo's guild, channel, member, and private-channel state caches are disable
 only the bot's own connection identity is retained by the library. DiscordGo's
 internal diagnostic logger is also disabled because upstream diagnostics may
 include event payloads or Discord resource identifiers.
+
+Repost deletion works without storage by embedding the author's Discord ID in
+the replacement message text sent to Discord as a mention. That identifier lives
+in the Discord message itself and is never written to local feature data.
 
 The only persistent feature data is the LLM-promoter opt-out set. Each entry
 contains a feature name and an HMAC pseudonym derived from the Discord user ID

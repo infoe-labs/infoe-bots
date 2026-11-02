@@ -93,13 +93,16 @@ func (f reactionTransport) RoundTrip(r *http.Request) (*http.Response, error) { 
 
 func TestReactionDeletesOnlyOriginalAuthorsRepost(t *testing.T) {
 	for _, tt := range []struct {
-		name, user, emoji string
-		wantDelete        bool
+		name, user, emoji, emojiID string
+		wantDelete                 bool
 	}{
-		{"owner cross", "123", "❌", true},
-		{"someone else cross", "456", "❌", false},
-		{"owner other emoji", "123", "👍", false},
-		{"bot own reaction", "bot", "❌", false},
+		{"owner cross", "123", "❌", "", true},
+		{"someone else cross", "456", "❌", "", false},
+		{"owner other emoji", "123", "👍", "", false},
+		{"bot own reaction", "bot", "❌", "", false},
+		// A server may upload a custom emoji literally named ":x:"; it must not
+		// be treated as the Unicode ❌ that authorizes deletion.
+		{"custom emoji named cross", "123", "❌", "1234567890", false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			deleted := false
@@ -126,7 +129,7 @@ func TestReactionDeletesOnlyOriginalAuthorsRepost(t *testing.T) {
 				}
 				return &http.Response{StatusCode: status, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body)), Request: r}, nil
 			})}
-			HandleReactionAdd(s, &discordgo.MessageReactionAdd{MessageReaction: &discordgo.MessageReaction{UserID: tt.user, ChannelID: "channel", MessageID: "repost", Emoji: discordgo.Emoji{Name: tt.emoji}}})
+			HandleReactionAdd(s, &discordgo.MessageReactionAdd{MessageReaction: &discordgo.MessageReaction{UserID: tt.user, ChannelID: "channel", MessageID: "repost", Emoji: discordgo.Emoji{Name: tt.emoji, ID: tt.emojiID}}})
 			if deleted != tt.wantDelete {
 				t.Fatalf("deleted = %v, want %v", deleted, tt.wantDelete)
 			}
