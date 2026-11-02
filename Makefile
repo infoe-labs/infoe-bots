@@ -17,7 +17,9 @@ help:
 	  'make deploy  # confirm the latest release' \
 	  'make deploy VERSION=v1.2.3' \
 	  'make status' \
-	  'make logs'
+	  'make logs' \
+	  '' \
+	  'make deploy warns when the release being installed trails the default branch.'
 
 test:
 	go test ./...
@@ -44,6 +46,7 @@ deploy:
 	  confirm=true; \
 	fi; \
 	printf '%s' "$$version" | grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$$' || { echo 'VERSION must be strict SemVer, for example v1.2.3' >&2; exit 2; }; \
+	sh scripts/deploy-drift.sh "$$version" || true; \
 	token_file='$(DISCORD_TOKEN_FILE)'; \
 	[ -n "$$token_file" ] || { echo 'Set DISCORD_TOKEN_FILE in .env or on the make command line' >&2; exit 2; }; \
 	[ -f "$$token_file" ] || { echo 'DISCORD_TOKEN_FILE does not exist' >&2; exit 2; }; \

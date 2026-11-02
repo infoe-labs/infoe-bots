@@ -95,6 +95,26 @@ The deployment installs the binary under `~/.local/bin` and runs it in a detache
 `~/.local/state/infoe-bots`. If the replacement exits during startup, the previous
 binary is restored and restarted.
 
+Because deployment installs a published tag rather than the tip of the default
+branch, work can be merged and released-pending without ever reaching the running
+bot. To make that visible, `make deploy` prints a drift warning before installing:
+
+```text
+warning: release v0.1.1 is 3 commits behind origin/main
+```
+
+The check is advisory: it never blocks or alters a deployment, and it stays silent
+when the comparison cannot be made (for example offline, or when the default branch
+cannot be determined). It compares against the default branch known to your local
+repository, refreshing the tag and branch refs from `origin` on a best-effort
+basis first, since `make deploy` otherwise discovers tags with `git ls-remote`
+without downloading them. Override the comparison with `ORIGIN` and
+`DEFAULT_BRANCH`, or run it directly:
+
+```sh
+sh scripts/deploy-drift.sh v0.1.1
+```
+
 Check the deployed version and process state, or follow the bot's stdout/stderr:
 
 ```sh
