@@ -43,3 +43,8 @@ If a privacy check fails, do not weaken or bypass it. Fix the offending content
 or identity. A local hook may be narrowly updated only when it rejects an
 already-approved public GitHub `noreply` merge identity; such updates must stay
 local and must not permit personal identities.
+
+## Shared repository standards
+
+Read `docs/SHARED_STANDARDS.md` for the canonical infoe-labs guidelines.
+Preserve stronger project-specific privacy, review, test and release rules.
