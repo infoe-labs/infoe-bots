@@ -39,7 +39,7 @@ message and pre-seeds a ❌ reaction so it can be clicked:
 
 https://fxtwitter.com/someone/status/123
 
-@someone, react with ❌ (:x:) to delete this message.
+Need to delete this? The original poster @someone can react with :x: to delete this message.
 ```
 
 Only the original author can delete their own repost. The author's Discord ID is
