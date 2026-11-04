@@ -31,8 +31,10 @@ func rewriteInstagramReels(content string) (string, bool) {
 }
 
 // deletionNotice binds the deletion instruction to the original author's ID.
+// The named user keeps the footer tied to the author named in the header, so
+// copying the footer onto another repost does not authorize a deletion.
 func deletionNotice(userID string) string {
-	return fmt.Sprintf("\n\n<@%s>, react with ❌ (:x:) to delete this message.", userID)
+	return fmt.Sprintf("\n\nNeed to delete this? The original poster <@%s> can react with :x: to delete this message.", userID)
 }
 
 func sendRepost(s *discordgo.Session, channelID, userID, content string) {
