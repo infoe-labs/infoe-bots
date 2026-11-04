@@ -10,7 +10,7 @@ import (
 var urlSanitizerCmd = &cobra.Command{
 	Use:   "urlsanitizer",
 	Short: "Rewrites social links for safer sharing and better embeds",
-	Long:  "Converts Instagram reels to kkinstagram embeds, removes potentially identifying Facebook share links, converts X/Twitter links, and warns about unsafe TikTok links.",
+	Long:  "Converts Instagram reels to kkinstagram embeds, removes potentially identifying Facebook share links, converts X/Twitter links, warns about unsafe TikTok links, and adds tracking-free copies of analytics-tagged links.",
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Println("Running URL sanitizer")
 		discord.Call(DiscordToken, urlsanitizer.HandleMessage, urlsanitizer.HandleReactionAdd)

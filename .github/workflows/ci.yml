@@ -31,3 +31,10 @@ jobs:
 
       - name: Build
         run: go build -trimpath ./...
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - run: echo 'Tests, vet and build passed in the required test job.'

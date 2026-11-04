@@ -19,6 +19,8 @@ var allCmd = &cobra.Command{
 
 		handlers := append([]interface{}{}, ping.Handlers()...)
 		handlers = append(handlers,
+			// urlsanitizer.HandleMessage ends by falling through to the
+			// no-analytics mode, so urlstripper needs no handler of its own here.
 			urlsanitizer.HandleMessage,
 			urlsanitizer.HandleReactionAdd,
 			llmpromoter.HandleMessage,
