@@ -69,13 +69,16 @@ func TestCanDeleteRepost(t *testing.T) {
 		name, author, user, content string
 		want                        bool
 	}{
-		{"instagram owner", "bot", "123", instagram + deletionNotice("123"), true},
-		{"twitter owner", "bot", "123", twitter + deletionNotice("123"), true},
-		{"other user", "bot", "456", instagram + deletionNotice("123"), false},
-		{"other bot", "other-bot", "123", instagram + deletionNotice("123"), false},
-		{"user impersonates repost", "123", "123", instagram + deletionNotice("123"), false},
-		{"unrelated bot message", "bot", "123", "hello" + deletionNotice("123"), false},
-		{"copied footer impersonation", "bot", "456", instagram + deletionNotice("456"), false},
+		{"instagram owner", "bot", "123", instagram + deletionNotice, true},
+		{"twitter owner", "bot", "123", twitter + deletionNotice, true},
+		{"footer written without the small-text marker", "bot", "123", instagram + plainNotice, true},
+		{"owner of a repost posted before the small-text footer", "bot", "123", instagram + legacyDeletionNotice("123"), true},
+		{"other user", "bot", "456", instagram + deletionNotice, false},
+		{"other bot", "other-bot", "123", instagram + deletionNotice, false},
+		{"user impersonates repost", "123", "123", instagram + deletionNotice, false},
+		{"unrelated bot message", "bot", "123", "hello" + deletionNotice, false},
+		{"stripped repost belonging to someone else", "bot", "456", strippedLinksHeader("123") + "https://example.com/a" + deletionNotice, false},
+		{"legacy footer names another user", "bot", "123", instagram + legacyDeletionNotice("456"), false},
 		{"missing footer", "bot", "123", instagram, false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -119,7 +122,7 @@ func TestReactionDeletesOnlyOriginalAuthorsRepost(t *testing.T) {
 				status := http.StatusOK
 				switch r.Method {
 				case http.MethodGet:
-					payload, _ := json.Marshal(&discordgo.Message{ID: "repost", Author: &discordgo.User{ID: "bot"}, Content: "📸 Instagram reel from <@123>, converted for a better Discord embed:\ntext" + deletionNotice("123")})
+					payload, _ := json.Marshal(&discordgo.Message{ID: "repost", Author: &discordgo.User{ID: "bot"}, Content: "📸 Instagram reel from <@123>, converted for a better Discord embed:\ntext" + deletionNotice})
 					body = string(payload)
 				case http.MethodDelete:
 					deleted = true
