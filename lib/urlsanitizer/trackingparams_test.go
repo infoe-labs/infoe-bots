@@ -43,6 +43,23 @@ func TestStrippedTrackingLinks(t *testing.T) {
 			want:  []string{"https://example.com/a"},
 		},
 		{
+			// The value keeps the real share_id shape (same length, with a '-' and
+			// '_') because that shape is what the query parser has to survive.
+			name:  "reddit share id carries only the share attribution",
+			input: "https://www.reddit.com/r/example/comments/1abc123/how_strictly_do_you_follow_the_rule/?share_id=Ab0cD-_eFgHiJkLmNoP",
+			want:  []string{"https://www.reddit.com/r/example/comments/1abc123/how_strictly_do_you_follow_the_rule/"},
+		},
+		{
+			name:  "reddit thread parameters that choose the view survive",
+			input: "https://www.reddit.com/r/example/comments/1abc123/how_strictly_do_you_follow_the_rule/?context=3&share_id=Ab0cD-_eFgHiJkLmNoP&sort=top&t=all",
+			want:  []string{"https://www.reddit.com/r/example/comments/1abc123/how_strictly_do_you_follow_the_rule/?context=3&sort=top&t=all"},
+		},
+		{
+			name:  "names that merely begin with a tracked name survive",
+			input: "https://example.com/a?referral=friend&referrer=1&share_ids=2&utm_campaign=x&utm_source=y",
+			want:  []string{"https://example.com/a?referral=friend&referrer=1&share_ids=2"},
+		},
+		{
 			name:  "fragment is preserved",
 			input: "https://example.com/a?utm_source=x#section-2",
 			want:  []string{"https://example.com/a#section-2"},
