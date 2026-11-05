@@ -46,8 +46,11 @@ var trackingParams = map[string]bool{
 	// News and syndication attribution
 	"ncid": true, "smid": true, "ipuid": true, "emc": true, "te": true,
 	"odid": true, "shem": true, "smtyp": true, "srcpid": true, "si": true,
-	// Referrer tags appended by share buttons and in-app browsers
+	// Referrer tags appended by share buttons and in-app browsers. share_id is
+	// what Reddit's share button appends to attribute an individual share; the
+	// thread opens the same without it.
 	"ref": true, "ref_src": true, "ref_url": true, "ref_tid": true,
+	"share_id": true,
 	// Email platforms
 	"mkt_tok": true, "vero_id": true, "ml_subscriber": true, "ml_email": true,
 	"_hsenc": true, "_hsmi": true, "hsid": true, "hscampaign": true,
