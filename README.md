@@ -115,6 +115,63 @@ cannot delete someone else's repost by copying the instruction into their own
 message, and a `:x:` reaction on any unrelated message is ignored. Deleting
 removes only the bot's replacement message, never the message that prompted it.
 
+## Releasing a version
+
+A release is a strict SemVer tag on the default branch. Pushing one is the whole
+publish step: the `Publish release` workflow builds the Linux/amd64 binary, its
+SHA-256 checksum, and a build-provenance attestation, then opens the matching
+GitHub Release, which is what `make deploy` later installs.
+
+After a pull request merges, cut the next release with:
+
+```sh
+make release            # patch bump: v0.2.0 -> v0.2.1
+make release BUMP=minor # minor bump: v0.2.0 -> v0.3.0
+make release BUMP=major # major bump: v0.2.0 -> v1.0.0
+```
+
+The version is derived from the newest strict SemVer tag on `origin`, using the
+same ordering `make deploy` uses to pick the newest release, so the two cannot
+disagree about which version is current. Prerelease tags such as `v1.0.0-rc.1`
+contribute their stable core; tags the workflow could never publish (`v1.2`,
+`v1.2.3.4`) are ignored rather than bumped. Choose an exact version instead of a
+bump with `make release VERSION=v1.2.3`, and set `MESSAGE="..."` to give the
+annotated tag a description instead of the bare version.
+
+Before anything is written, the release is checked and shown:
+
+```text
+base      v0.2.0
+release   v0.3.0 (minor bump)
+tagger    <the repository-local git identity>
+2 commit(s) since v0.2.0:
+  653f851 Add a no-analytics mode that reposts links instead of deleting them (#11)
+  10ff9df Frame the repost footer as a deletion option for the original poster (#10)
+Tag v0.3.0 and publish it? [y/N]
+```
+
+Nothing is published until you answer `y`, and a published release cannot be
+quietly undone, so the checks are deliberately strict. The release is refused when
+the working tree has uncommitted changes, when HEAD is detached or on any branch
+other than the default branch, when HEAD is ahead of or behind `origin/main`, when
+the tag already exists locally or on `origin`, when the version does not trail the
+newest release, when the tagger identity is not the repository-local one, or when
+the newest tag already points at HEAD (nothing was merged since the last release).
+`make release` runs `make test` first, because a failing build should never reach
+the point of publishing.
+
+Preview a release without touching the repository:
+
+```sh
+DRY_RUN=true sh scripts/release.sh minor
+```
+
+To release from a non-interactive shell, where the prompt cannot be answered, pass
+`ASSUME_YES=yes` once you have confirmed the version yourself. Override `ORIGIN` or
+`DEFAULT_BRANCH` to release from a fork or a release branch. `make build-release`
+is an alias for `make release`; it publishes by pushing the tag, so no separate
+build step exists.
+
 ## Binary deployment
 
 Store the Discord token in a local file, not in this repository or directly in
@@ -220,9 +277,9 @@ Tokens are accepted only through a mode-`0600` file. Passing a token directly on
 the command line is intentionally unsupported because command arguments may be
 retained in shell history or exposed through process listings.
 
-Create releases by pushing strict SemVer tags such as `v1.2.3`. GitHub-hosted
-Actions test the code and publish the corresponding binary and SHA-256 checksum
-as GitHub Release assets.
+Releases are published by the tag push described in Releasing a version: the
+GitHub-hosted workflow tests the code and publishes the binary and SHA-256
+checksum as GitHub Release assets.
 
 Cooldown history stays in memory for six hours and is removed by a cleanup task
 that runs every minute, including while the bot is idle. Expired entries are also

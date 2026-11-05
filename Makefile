@@ -7,18 +7,25 @@ REPOSITORY ?= infoe-labs/infoe-bots
 BINARY ?= $(HOME)/.local/bin/infoe-bots
 SESSION ?= infoe-bots
 LOG_FILE ?= $(HOME)/.local/state/infoe-bots/infoe-bots.log
+BUMP ?= patch
+ASSUME_YES ?=
+MESSAGE ?=
 
-.PHONY: help test build deploy status logs
+.PHONY: help test build release build-release deploy status logs
 
 help:
 	@printf '%s\n' \
 	  'make test' \
 	  'make build VERSION=v1.2.3' \
+	  'make release  # bump the newest tag, tag origin/main, publish' \
+	  'make release BUMP=minor' \
+	  'make release VERSION=v1.2.3' \
 	  'make deploy  # confirm the latest release' \
 	  'make deploy VERSION=v1.2.3' \
 	  'make status' \
 	  'make logs' \
 	  '' \
+	  'make release refuses to tag anything but a clean, pushed default branch.' \
 	  'make deploy warns when the release being installed trails the default branch.'
 
 test:
@@ -28,6 +35,17 @@ test:
 build:
 	@printf '%s' '$(VERSION)' | grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$$' || { echo 'VERSION must be strict SemVer, for example v1.2.3' >&2; exit 2; }
 	go build -trimpath -ldflags='-s -w -buildid= -X github.com/infoe-labs/infoe-bots/cli.Version=$(VERSION)' -o infoe-bots .
+
+# Releasing publishes, so the tag has to sit on merged, reviewed, tested work.
+# Tests run first, then scripts/release.sh decides the version, shows what
+# becomes public, and asks before pushing the tag that triggers publication.
+release: test
+	@VERSION='$(VERSION)' ASSUME_YES='$(ASSUME_YES)' MESSAGE='$(MESSAGE)' \
+	  sh scripts/release.sh '$(BUMP)'
+
+# Spelled-out alias: 'make build-release' builds nothing new, it publishes the
+# release build by publishing the tag. Kept because it is what people type.
+build-release: release
 
 deploy:
 	@set -eu; \
