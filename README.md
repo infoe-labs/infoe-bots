@@ -13,6 +13,7 @@ go run main.go --discord-token-file .secrets/discord-token ping
 go run main.go --discord-token-file .secrets/discord-token urlsanitizer
 go run main.go --discord-token-file .secrets/discord-token urlstripper
 go run main.go --discord-token-file .secrets/discord-token llmpromoter
+go run main.go --discord-token-file .secrets/discord-token messagepreview
 ```
 
 `mango` is a preserved legacy joke subcommand. It is not included in `all` and
@@ -111,6 +112,32 @@ older posts, so mentions inside copied user text cannot authorize deletion.
 Older footer formats remain supported. Deleting removes only the bot's
 replacement message, never the message that prompted it.
 
+## Discord message previews
+
+In `all` or `messagepreview` mode, posting a Discord message link produces a reply
+with an embed: the original author's display name and avatar, up to 1,200
+characters of text, timestamp, first non-spoiler image attachment, and a link back
+to the original. Up to three distinct links are checked per post and combined in
+one reply. Bot/webhook posts and links wrapped in `<...>` are ignored. The
+triggering message is kept, and mentions in the preview never ping anyone.
+
+Enable **Message Content Intent** under **Bot → Privileged Gateway Intents** in
+the Discord Developer Portal. The bot requests this intent for its text features.
+It needs **View Channel** and **Read Message History** in the source channel, and
+**Send Messages** (or **Send Messages in Threads**) and **Embed Links** where it
+replies.
+
+Previews stay within the same server. Links within the current channel work for
+any source message the bot can read. For a different channel, the source must be
+a text or announcement channel where `@everyone` can view and read history,
+without a role or member denying either permission. Links from other channels'
+threads are skipped. Age-restricted sources are only previewed in another
+age-restricted channel. Inaccessible or deleted messages are skipped silently.
+
+These are snapshots posted to Discord: later edits, deletions, or permission
+changes to the original do not update or remove the preview. Preview content and
+author metadata are processed in memory only; no local preview cache is stored.
+
 ## Releasing a version
 
 A release is a strict SemVer tag on the default branch. Pushing one is the whole
@@ -197,10 +224,45 @@ specify it explicitly:
 make deploy VERSION=v1.2.3
 ```
 
+Deployment requires GitHub CLI (`gh`) authenticated with `gh auth login`.
+If the binary and checksum are not published yet, it finds the `Publish release`
+workflow for the selected tag and watches it with `gh run watch --exit-status`.
+It waits up to one minute for a newly pushed tag's run to appear, then waits for
+that run to finish before downloading. A failed or cancelled run stops deployment
+with a link to the run. Missing assets after a successful run also stop deployment
+after a one-minute grace period.
+
 The deployment installs the binary under `~/.local/bin` and runs it in a detached
 `screen` session named `infoe-bots`. Output is written under
 `~/.local/state/infoe-bots`. If the replacement exits during startup, the previous
 binary is restored and restarted.
+
+### Testing local changes in the running bot
+
+To test the current working tree (including uncommitted changes) in your existing
+bot session, without publishing a release:
+
+```sh
+make deploy-local
+make status
+make logs
+```
+
+`deploy-local` runs tests and vet, builds a Linux/amd64 binary labelled
+`v0.0.0-local`, and uses the same checksum/version checks, installer, and startup
+rollback as release deployment. It replaces the running bot using the same token,
+log, binary, and screen session settings. A successful startup check only confirms
+that the process stayed running for three seconds; verify the feature in Discord.
+
+Restore the published release after testing:
+
+```sh
+make deploy VERSION=v0.4.0
+```
+
+Rollback replaces the binary and restarts the bot; it does not undo Discord
+messages sent while testing or changes to feature preferences. No tag or GitHub
+Release is created by `deploy-local`.
 
 Because deployment installs a published tag rather than the tip of the default
 branch, work can be merged and released-pending without ever reaching the running
@@ -235,7 +297,9 @@ Press `Ctrl-C` to stop following logs; this does not stop the bot.
 
 The bot processes Discord events in memory to provide its configured features.
 It does not persist message content, usernames, guild IDs, channel IDs, message
-IDs, IP addresses, or raw Discord user IDs.
+IDs, IP addresses, or raw Discord user IDs locally. Discord message previews copy
+the selected text, author display name/avatar, and optional image into a reply
+stored by Discord.
 
 DiscordGo's guild, channel, member, and private-channel state caches are disabled;
 only the bot's own connection identity is retained by the library. DiscordGo's

@@ -28,8 +28,8 @@ func Call(DiscordToken string, handlers ...interface{}) {
 		dg.AddHandler(handler)
 	}
 
-	// In this example, we only care about receiving message events and reactions.
-	dg.Identify.Intents = discordgo.IntentsGuildMessages | discordgo.IntentsGuildMessageReactions
+	// Message content is required for link handling and message previews.
+	dg.Identify.Intents = discordgo.IntentsGuildMessages | discordgo.IntentsGuildMessageReactions | discordgo.IntentMessageContent
 
 	// Open a websocket connection to Discord and begin listening.
 	err = dg.Open()
