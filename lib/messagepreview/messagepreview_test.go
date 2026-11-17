@@ -25,6 +25,7 @@ func TestHandleMessage(t *testing.T) {
 		wantReads, wantEmbeds int
 	}{
 		{name: "reply", content: link, wantReads: 1, wantEmbeds: 1},
+		{name: "cross channel core", content: "https://discord.com/channels/100/201/300", wantReads: 1, wantEmbeds: 1},
 		{name: "duplicate", content: link + " " + link, wantReads: 1, wantEmbeds: 1},
 		{name: "variants", content: "https://ptb.discord.com/channels/100/200/301?x=1 https://canary.discord.com/channels/100/200/302 https://discordapp.com/channels/100/200/303", wantReads: 3, wantEmbeds: 3},
 		{name: "bounded", content: link + " https://discord.com/channels/100/200/301 https://discord.com/channels/100/200/302 https://discord.com/channels/100/200/303", wantReads: 3, wantEmbeds: 3},
@@ -47,7 +48,11 @@ func TestHandleMessage(t *testing.T) {
 				body := `{}`
 				switch r.Method {
 				case "GET":
-					if !strings.Contains(r.URL.Path, "/channels/200/messages/") {
+					if strings.HasSuffix(r.URL.Path, "/channels/200") || strings.HasSuffix(r.URL.Path, "/channels/201") {
+						body = `{"guild_id":"100","type":0,"permission_overwrites":[{"id":"100","type":0,"allow":"0","deny":"66560"},{"id":"500","type":0,"allow":"66560","deny":"0"}]}`
+						break
+					}
+					if !strings.Contains(r.URL.Path, "/channels/200/messages/") && !strings.Contains(r.URL.Path, "/channels/201/messages/") {
 						t.Fatalf("unexpected GET path")
 					}
 					reads++
@@ -101,41 +106,78 @@ func TestHandleMessage(t *testing.T) {
 	}
 }
 
-func TestPublicSource(t *testing.T) {
+func TestMatchingAudience(t *testing.T) {
+	everyone := func(deny int64) *discordgo.PermissionOverwrite {
+		return &discordgo.PermissionOverwrite{ID: "100", Type: discordgo.PermissionOverwriteTypeRole, Deny: deny}
+	}
+	core := func(allow int64) *discordgo.PermissionOverwrite {
+		return &discordgo.PermissionOverwrite{ID: "500", Type: discordgo.PermissionOverwriteTypeRole, Allow: allow}
+	}
+	member := func(deny int64) *discordgo.PermissionOverwrite {
+		return &discordgo.PermissionOverwrite{ID: "600", Type: discordgo.PermissionOverwriteTypeMember, Deny: deny}
+	}
+	restricted := func() []*discordgo.PermissionOverwrite {
+		return []*discordgo.PermissionOverwrite{everyone(readPermissions), core(readPermissions)}
+	}
 	for _, tt := range []struct {
-		name, channel, roles, target string
-		want                         bool
+		name                    string
+		from, to                []*discordgo.PermissionOverwrite
+		sourceType, targetType  discordgo.ChannelType
+		sourceNSFW, targetNSFW  bool
+		otherGuild, unavailable bool
+		want                    bool
 	}{
-		{"public", `{"guild_id":"100","type":0}`, `[{"id":"100","permissions":"66560"}]`, `{}`, true},
-		{"no history", `{"guild_id":"100","type":0}`, `[{"id":"100","permissions":"1024"}]`, `{}`, false},
-		{"private", `{"guild_id":"100","type":0}`, `[{"id":"100","permissions":"0"}]`, `{}`, false},
-		{"everyone allow", `{"guild_id":"100","type":0,"permission_overwrites":[{"id":"100","type":0,"allow":"66560","deny":"0"}]}`, `[{"id":"100","permissions":"0"}]`, `{}`, true},
-		{"role restricted", `{"guild_id":"100","type":0,"permission_overwrites":[{"id":"999","type":0,"allow":"0","deny":"66560"}]}`, `[{"id":"100","permissions":"66560"}]`, `{}`, false},
-		{"member restricted", `{"guild_id":"100","type":0,"permission_overwrites":[{"id":"999","type":1,"allow":"0","deny":"66560"}]}`, `[{"id":"100","permissions":"66560"}]`, `{}`, false},
-		{"everyone deny", `{"guild_id":"100","type":0,"permission_overwrites":[{"id":"100","type":0,"allow":"0","deny":"66560"}]}`, `[{"id":"100","permissions":"66560"}]`, `{}`, false},
-		{"thread", `{"guild_id":"100","type":11}`, `[]`, `{}`, false},
-		{"other guild", `{"guild_id":"101","type":0}`, `[]`, `{}`, false},
-		{"NSFW to safe", `{"guild_id":"100","type":0,"nsfw":true}`, `[{"id":"100","permissions":"66560"}]`, `{"nsfw":false}`, false},
-		{"NSFW to NSFW", `{"guild_id":"100","type":0,"nsfw":true}`, `[{"id":"100","permissions":"66560"}]`, `{"nsfw":true}`, true},
+		{name: "public channels", want: true},
+		{name: "matching core access", from: restricted(), to: restricted(), want: true},
+		{name: "ignore ordering", from: restricted(), to: []*discordgo.PermissionOverwrite{core(readPermissions), everyone(readPermissions)}, want: true},
+		{name: "ignore send permissions", from: restricted(), to: []*discordgo.PermissionOverwrite{everyone(readPermissions), core(readPermissions | discordgo.PermissionSendMessages)}, want: true},
+		{name: "ignore neutral overrides", to: []*discordgo.PermissionOverwrite{core(discordgo.PermissionSendMessages)}, want: true},
+		{name: "core missing at destination", from: restricted(), to: []*discordgo.PermissionOverwrite{everyone(readPermissions)}},
+		{name: "core missing at source", from: []*discordgo.PermissionOverwrite{everyone(readPermissions)}, to: restricted()},
+		{name: "moderator source to core", from: []*discordgo.PermissionOverwrite{everyone(readPermissions), {ID: "700", Type: discordgo.PermissionOverwriteTypeRole, Allow: readPermissions}}, to: restricted()},
+		{name: "history differs", from: restricted(), to: []*discordgo.PermissionOverwrite{everyone(readPermissions), core(discordgo.PermissionViewChannel)}},
+		{name: "member denial differs", from: append(restricted(), member(discordgo.PermissionViewChannel)), to: restricted()},
+		{name: "matching member denial", from: append(restricted(), member(discordgo.PermissionViewChannel)), to: append(restricted(), member(discordgo.PermissionViewChannel)), want: true},
+		{name: "role and member IDs are distinct", from: []*discordgo.PermissionOverwrite{core(readPermissions)}, to: []*discordgo.PermissionOverwrite{{ID: "500", Type: discordgo.PermissionOverwriteTypeMember, Allow: readPermissions}}},
+		{name: "source thread", sourceType: discordgo.ChannelTypeGuildPublicThread},
+		{name: "destination thread", targetType: discordgo.ChannelTypeGuildPrivateThread},
+		{name: "different guild", otherGuild: true},
+		{name: "NSFW to safe", sourceNSFW: true},
+		{name: "NSFW to NSFW", sourceNSFW: true, targetNSFW: true, want: true},
+		{name: "safe to NSFW", targetNSFW: true, want: true},
+		{name: "channel lookup failed", unavailable: true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			s, _ := discordgo.New("Bot test-token")
+			source := &discordgo.Channel{ID: "200", GuildID: "100", Type: tt.sourceType, PermissionOverwrites: tt.from, NSFW: tt.sourceNSFW}
+			target := &discordgo.Channel{ID: "201", GuildID: "100", Type: tt.targetType, PermissionOverwrites: tt.to, NSFW: tt.targetNSFW}
+			if tt.otherGuild {
+				target.GuildID = "101"
+			}
+			s, err := discordgo.New("Bot test-token")
+			if err != nil {
+				t.Fatal(err)
+			}
 			s.StateEnabled = false
 			s.Client = &http.Client{Transport: transport(func(r *http.Request) (*http.Response, error) {
-				var body string
+				if tt.unavailable {
+					return nil, fmt.Errorf("unavailable")
+				}
+				var channel *discordgo.Channel
 				switch {
 				case strings.HasSuffix(r.URL.Path, "/channels/200"):
-					body = tt.channel
+					channel = source
 				case strings.HasSuffix(r.URL.Path, "/channels/201"):
-					body = tt.target
-				case strings.HasSuffix(r.URL.Path, "/guilds/100/roles"):
-					body = tt.roles
+					channel = target
 				default:
 					t.Fatal("unexpected request")
 				}
-				return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body)), Request: r}, nil
+				body, err := json.Marshal(channel)
+				if err != nil {
+					t.Fatal(err)
+				}
+				return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(string(body))), Request: r}, nil
 			})}
-			if got := publicSource(s, "100", "200", "201"); got != tt.want {
+			if got := matchingAudience(s, "100", "200", "201"); got != tt.want {
 				t.Errorf("allowed = %v, want %v", got, tt.want)
 			}
 		})
@@ -184,8 +226,8 @@ func TestPrivateSourceIsNotFetched(t *testing.T) {
 		switch {
 		case r.Method == "GET" && strings.HasSuffix(r.URL.Path, "/channels/201"):
 			body = `{"guild_id":"100","type":0}`
-		case r.Method == "GET" && strings.HasSuffix(r.URL.Path, "/guilds/100/roles"):
-			body = `[{"id":"100","permissions":"0"}]`
+		case r.Method == "GET" && strings.HasSuffix(r.URL.Path, "/channels/200"):
+			body = `{"guild_id":"100","type":0,"permission_overwrites":[{"id":"500","type":0,"allow":"66560","deny":"0"}]}`
 		default:
 			t.Fatal("private source content must not be fetched or posted")
 		}

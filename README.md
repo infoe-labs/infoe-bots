@@ -128,11 +128,17 @@ It needs **View Channel** and **Read Message History** in the source channel, an
 replies.
 
 Previews stay within the same server. Links within the current channel work for
-any source message the bot can read. For a different channel, the source must be
-a text or announcement channel where `@everyone` can view and read history,
-without a role or member denying either permission. Links from other channels'
-threads are skipped. Age-restricted sources are only previewed in another
-age-restricted channel. Inaccessible or deleted messages are skipped silently.
+any source message the bot can read. Cross-channel previews fetch both channels'
+permissions and require matching **View Channel** and **Read Message History**
+overrides for `@everyone`, every role (including `@core`), and individual members.
+Role IDs are compared, so no role-name configuration is needed. Matching
+`@core`-restricted channels work; a moderator-only channel cannot preview into a
+channel with different access rules. Sending, reactions, and other unrelated
+permissions may differ. Neutral overrides and override ordering are ignored.
+This conservative comparison can skip channels with different rules even when
+those rules happen to produce the same audience. Both channels must be text or
+announcement channels; cross-channel thread links are skipped. Age-restricted
+sources are only previewed in another age-restricted channel. Inaccessible or deleted messages are skipped silently.
 
 These are snapshots posted to Discord: later edits, deletions, or permission
 changes to the original do not update or remove the preview. Preview content and

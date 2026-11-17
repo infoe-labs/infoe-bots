@@ -3,13 +3,14 @@ package messagepreview
 
 import (
 	"fmt"
+	"maps"
 	"regexp"
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
 )
 
-const publicPermissions = discordgo.PermissionViewChannel | discordgo.PermissionReadMessageHistory
+const readPermissions = discordgo.PermissionViewChannel | discordgo.PermissionReadMessageHistory
 
 var messageLink = regexp.MustCompile(`https://(?:(?:canary|ptb)\.)?discord(?:app)?\.com/channels/([0-9]+)/([0-9]+)/([0-9]+)(?:[/?#][^\s<>]*)?`)
 
@@ -48,7 +49,7 @@ func HandleMessage(s *discordgo.Session, event *discordgo.MessageCreate) {
 		if attempts > 3 {
 			break
 		}
-		if channel != m.ChannelID && !publicSource(s, guild, channel, m.ChannelID) {
+		if channel != m.ChannelID && !matchingAudience(s, guild, channel, m.ChannelID) {
 			continue
 		}
 		original, err := s.ChannelMessage(channel, id)
@@ -71,45 +72,52 @@ func HandleMessage(s *discordgo.Session, event *discordgo.MessageCreate) {
 	}
 }
 
-// Cross-channel previews require an ordinary channel visible to everyone,
-// without any role/member denial of viewing or reading history. Threads are intentionally excluded here:
-// parent permissions alone do not establish private-thread membership.
-func publicSource(s *discordgo.Session, guild, source, destination string) bool {
-	channel, err := s.Channel(source)
-	if err != nil || channel.GuildID != guild || (channel.Type != discordgo.ChannelTypeGuildText && channel.Type != discordgo.ChannelTypeGuildNews) {
+// Within one guild the base role permissions are shared. Equal read-related
+// overwrites therefore preserve access for every role combination and member
+// override, including roles such as core. Other permissions may differ freely.
+// This deliberately requires matching rules rather than guessing equivalence
+// from a role name, a single member, or the bot's own administrator access.
+func matchingAudience(s *discordgo.Session, guild, source, destination string) bool {
+	from, err := s.Channel(source)
+	if err != nil || !ordinaryChannel(from, guild) {
 		return false
 	}
-	if channel.NSFW {
-		target, err := s.Channel(destination)
-		if err != nil || !target.NSFW {
-			return false
-		}
-	}
-	roles, err := s.GuildRoles(guild)
-	if err != nil {
+	to, err := s.Channel(destination)
+	if err != nil || !ordinaryChannel(to, guild) {
 		return false
 	}
-	var permissions int64
-	foundEveryone := false
-	for _, role := range roles {
-		if role.ID == guild {
-			permissions = role.Permissions
-			foundEveryone = true
-			break
-		}
-	}
-	if !foundEveryone {
+	if from.NSFW && !to.NSFW {
 		return false
 	}
+	return maps.Equal(readOverwrites(from), readOverwrites(to))
+}
+
+func ordinaryChannel(channel *discordgo.Channel, guild string) bool {
+	// Thread membership and inherited access need separate handling; do not infer
+	// thread access from parent overwrites alone.
+	return channel != nil && channel.GuildID == guild &&
+		(channel.Type == discordgo.ChannelTypeGuildText || channel.Type == discordgo.ChannelTypeGuildNews)
+}
+
+type overwriteKey struct {
+	id   string
+	kind discordgo.PermissionOverwriteType
+}
+
+type readOverwrite struct {
+	allow, deny int64
+}
+
+func readOverwrites(channel *discordgo.Channel) map[overwriteKey]readOverwrite {
+	result := make(map[overwriteKey]readOverwrite)
 	for _, overwrite := range channel.PermissionOverwrites {
-		if overwrite.Deny&publicPermissions != 0 {
-			return false
-		}
-		if overwrite.Type == discordgo.PermissionOverwriteTypeRole && overwrite.ID == guild {
-			permissions = (permissions &^ overwrite.Deny) | overwrite.Allow
+		value := readOverwrite{allow: overwrite.Allow & readPermissions, deny: overwrite.Deny & readPermissions}
+		// An explicit neutral overwrite has the same effect as no overwrite.
+		if value.allow != 0 || value.deny != 0 {
+			result[overwriteKey{id: overwrite.ID, kind: overwrite.Type}] = value
 		}
 	}
-	return permissions&publicPermissions == publicPermissions
+	return result
 }
 
 func truncate(text string, limit int) string {
