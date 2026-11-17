@@ -69,6 +69,12 @@ func TestCanDeleteRepost(t *testing.T) {
 		name, author, user, content string
 		want                        bool
 	}{
+		{"compact owner", "bot", "123", "https://fxtwitter.com/example/status/20" + convertedLinkNotice("123"), true},
+		{"compact other user", "bot", "456", "https://fxtwitter.com/example/status/20" + convertedLinkNotice("123"), false},
+		{"compact other bot", "other-bot", "123", "text" + convertedLinkNotice("123"), false},
+		{"compact user impersonation", "123", "123", "text" + convertedLinkNotice("123"), false},
+		{"compact attribution inside copied content", "bot", "456", "text" + convertedLinkNotice("456") + convertedLinkNotice("123"), false},
+		{"compact attribution is not final", "bot", "123", "text" + convertedLinkNotice("123") + "\nmore text", false},
 		{"instagram owner", "bot", "123", instagram + deletionNotice, true},
 		{"twitter owner", "bot", "123", twitter + deletionNotice, true},
 		{"footer written without the small-text marker", "bot", "123", instagram + plainNotice, true},
@@ -122,7 +128,7 @@ func TestReactionDeletesOnlyOriginalAuthorsRepost(t *testing.T) {
 				status := http.StatusOK
 				switch r.Method {
 				case http.MethodGet:
-					payload, _ := json.Marshal(&discordgo.Message{ID: "repost", Author: &discordgo.User{ID: "bot"}, Content: "📸 Instagram reel from <@123>, converted for a better Discord embed:\ntext" + deletionNotice})
+					payload, _ := json.Marshal(&discordgo.Message{ID: "repost", Author: &discordgo.User{ID: "bot"}, Content: "https://kkinstagram.com/reel/ABC123/" + convertedLinkNotice("123")})
 					body = string(payload)
 				case http.MethodDelete:
 					deleted = true
@@ -135,6 +141,34 @@ func TestReactionDeletesOnlyOriginalAuthorsRepost(t *testing.T) {
 			HandleReactionAdd(s, &discordgo.MessageReactionAdd{MessageReaction: &discordgo.MessageReaction{UserID: tt.user, ChannelID: "channel", MessageID: "repost", Emoji: discordgo.Emoji{Name: tt.emoji, ID: tt.emojiID}}})
 			if deleted != tt.wantDelete {
 				t.Fatalf("deleted = %v, want %v", deleted, tt.wantDelete)
+			}
+		})
+	}
+}
+
+func TestConvertedRepostLayout(t *testing.T) {
+	for _, tt := range []struct{ name, input, want string }{
+		{"twitter", "https://x.com/example/status/20?utm_source=share", "https://fxtwitter.com/example/status/20"},
+		{"instagram", "https://www.instagram.com/reel/ABC123/?igsh=tracking", "https://kkinstagram.com/reel/ABC123/"},
+		{"twitter with commentary", "look https://x.com/example/status/20", "look\nhttps://fxtwitter.com/example/status/20"},
+		{"instagram with commentary", "watch https://instagram.com/reel/ABC123/ please", "watch https://kkinstagram.com/reel/ABC123/ please"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			posted := &postedMessage{}
+			s := testSession(t, posted)
+			HandleMessage(s, &discordgo.MessageCreate{Message: &discordgo.Message{
+				ID: "original", ChannelID: "channel", Author: &discordgo.User{ID: "123"}, Content: tt.input,
+			}})
+			want := tt.want + "\n-# Converted link for better embeds from <@123> who can ❌ to delete."
+			if posted.content != want {
+				t.Fatalf("repost = %q, want %q", posted.content, want)
+			}
+			if !posted.deleted || len(posted.reactions) != 1 {
+				t.Fatal("converted repost must replace the original and seed the deletion reaction")
+			}
+			requireNoPings(t, posted)
+			if !canDeleteRepost(&discordgo.Message{Author: s.State.User, Content: posted.content}, "bot", "123") {
+				t.Fatal("original author cannot delete the compact repost")
 			}
 		})
 	}
