@@ -30,9 +30,8 @@ func rewriteInstagramReels(content string) (string, bool) {
 	return rewritten, found
 }
 
-// deletionFooterBody is the deletion instruction. It names no one: the author is
-// already bound to the message by the anchored header, and mentioning them again
-// here would ping them for something the bot posted.
+// deletionFooterBody is retained for tracking-free replies and older reposts.
+// Those messages bind the author in their header.
 const deletionFooterBody = "Sent · the original poster can react with :x: to delete this message."
 
 // smallText prefixes a line so Discord renders it in its small-text style.
@@ -62,8 +61,14 @@ func hasDeletionFooter(content, userID string) bool {
 		strings.HasSuffix(content, legacyDeletionNotice(userID))
 }
 
+// convertedLinkNotice combines attribution and deletion instructions on one line.
+// Its anchored suffix binds a converted repost to the original author.
+func convertedLinkNotice(userID string) string {
+	return "\n" + smallText(fmt.Sprintf("Converted link for better embeds from <@%s> who can ❌ to delete.", userID))
+}
+
 // noPings stops Discord from notifying anyone about a bot message. The repost
-// headers carry the original author's ID for authorization and the tracking-free
+// messages carry the original author's ID for authorization and the tracking-free
 // message is a reply, but neither should ping the person for the bot's own post.
 var noPings = &discordgo.MessageAllowedMentions{
 	// An empty parse list, not a nil one, is what tells Discord to parse no
@@ -74,7 +79,7 @@ var noPings = &discordgo.MessageAllowedMentions{
 
 func sendRepost(s *discordgo.Session, channelID, userID, content string) {
 	message, err := s.ChannelMessageSendComplex(channelID, &discordgo.MessageSend{
-		Content:         content + deletionNotice,
+		Content:         content + convertedLinkNotice(userID),
 		AllowedMentions: noPings,
 	})
 	if err == nil {
@@ -103,7 +108,12 @@ func canDeleteRepost(message *discordgo.Message, botID, userID string) bool {
 		return false
 	}
 
-	// Match a bot-generated header, never a mention inside copied user text.
+	// New converted reposts bind the author in the final small-text line.
+	if strings.HasSuffix(message.Content, convertedLinkNotice(userID)) {
+		return true
+	}
+
+	// Older reposts and tracking-free replies bind the author in the header.
 	headers := []string{
 		fmt.Sprintf("📸 Instagram reel from <@%s>, converted for a better Discord embed:\n", userID),
 		fmt.Sprintf("🔗 Converted to fxtwitter for better embeds (original message from <@%s>)\n\n", userID),
@@ -133,8 +143,7 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 			return
 		}
 
-		message := fmt.Sprintf("📸 Instagram reel from <@%s>, converted for a better Discord embed:\n%s", m.Author.ID, rewritten)
-		sendRepost(s, m.ChannelID, m.Author.ID, message)
+		sendRepost(s, m.ChannelID, m.Author.ID, strings.TrimRight(rewritten, "\r\n"))
 		return
 	}
 
@@ -172,7 +181,7 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 			}
 
 			// Construct the message
-			message := fmt.Sprintf("🔗 Converted to fxtwitter for better embeds (original message from <@%s>)\n\n", m.Author.ID)
+			message := ""
 
 			// Add any additional content from the original message. Any other link
 			// the poster included is cleaned here too, so a repost never carries

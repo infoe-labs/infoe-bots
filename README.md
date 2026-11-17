@@ -86,35 +86,30 @@ self-service deletion. The bot posts the message and pre-seeds a ❌ reaction so
 can be clicked:
 
 ```text
-🔗 Converted to fxtwitter for better embeds (original message from @someone)
-
 https://fxtwitter.com/someone/status/123
-
--# Sent · the original poster can react with :x: to delete this message.
+-# Converted link for better embeds from <@someone> who can ❌ to delete.
 ```
 
 Only the original author can delete their own repost. The author's Discord ID is
-carried inside the replacement message itself, in the bot-generated header, so
-authorization is a text comparison against the message rather than a database
-lookup. No state is stored locally and the rule keeps working after a bot
-restart. The footer deliberately names no one, so the poster is not mentioned
-twice, and every repost is sent with mentions unparsed, which also drops the ping
-that the tracking-free reply would otherwise send.
+carried inside the replacement message itself: converted links put attribution
+and deletion instructions together in one small-text line directly below the
+content. Tracking-free replies and older reposts carry it in their header.
+Authorization uses anchored text comparisons rather than a database lookup, so
+it keeps working after a bot restart. Every repost is sent with mentions
+unparsed, including the ping that a tracking-free reply would otherwise send.
 
 A reaction deletes a message only when all of the following hold:
 
 - the reaction is the Unicode ❌ emoji, not a similarly named custom server emoji
 - the reaction was added by someone other than the bot
 - the reacted message was authored by this bot
-- the message begins with one of the bot-generated repost headers naming that
-  same user
-- the message ends with the deletion footer, or with the older footer that named
-  that same user, so reposts written before the wording changed stay deletable
+- the message ends with the converted-link footer naming that same user, or
+  matches a legacy repost header and its deletion footer
 
-The header and footer are matched as an anchored prefix and suffix, so a user
-cannot delete someone else's repost by copying the instruction into their own
-message, and a `:x:` reaction on any unrelated message is ignored. Deleting
-removes only the bot's replacement message, never the message that prompted it.
+The attribution is matched at the end of new converted posts and at the start of
+older posts, so mentions inside copied user text cannot authorize deletion.
+Older footer formats remain supported. Deleting removes only the bot's
+replacement message, never the message that prompted it.
 
 ## Releasing a version
 
