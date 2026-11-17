@@ -52,9 +52,10 @@ Removed parameters are the ones that carry attribution rather than page content:
 the `utm_`, `mtm_`, `hsa_`, `mc_`, `sfmc_`, `sg_`, `at_`, `trk_`, `klaviyo_`,
 `vero_` and `dcm_` prefixes, plus named click ids and referrer tags such as
 `fbclid`, `gclid`, `gbraid`, `wbraid`, `msclkid`, `ttclid`, `igsh`, `epst`,
-`_gl`, `si` and `ref`. The un-prefixed twins `source`, `medium`, `campaign`,
-`term` and `content` are removed only when the same link already carries a
-`utm_*` parameter, so sites that use those names for real content keep working.
+`_gl`, `si`, `ref` and Reddit's `share_id`. The un-prefixed twins `source`,
+`medium`, `campaign`, `term` and `content` are removed only when the same link
+already carries a `utm_*` parameter, so sites that use those names for real
+content keep working.
 
 Guarantees:
 
