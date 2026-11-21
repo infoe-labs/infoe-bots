@@ -11,7 +11,7 @@ BUMP ?= patch
 ASSUME_YES ?=
 MESSAGE ?=
 
-.PHONY: help test build release build-release deploy status logs
+.PHONY: help test build release build-release deploy deploy-local status logs
 
 help:
 	@printf '%s\n' \
@@ -22,6 +22,7 @@ help:
 	  'make release VERSION=v1.2.3' \
 	  'make deploy  # confirm the latest release' \
 	  'make deploy VERSION=v1.2.3' \
+	  'make deploy-local  # test and install the current working tree' \
 	  'make status' \
 	  'make logs' \
 	  '' \
@@ -47,10 +48,14 @@ release: test
 # release build by publishing the tag. Kept because it is what people type.
 build-release: release
 
+# Exercise the working tree through the same installer, without publishing a tag.
+deploy-local: test
+	@$(MAKE) deploy LOCAL_BUILD=yes VERSION=v0.0.0-local
+
 deploy:
 	@set -eu; \
 	umask 077; \
-	command -v curl >/dev/null || { echo 'curl is required' >&2; exit 2; }; \
+	if [ '$(LOCAL_BUILD)' != yes ]; then command -v curl >/dev/null || { echo 'curl is required' >&2; exit 2; }; fi; \
 	command -v screen >/dev/null || { echo 'screen is required' >&2; exit 2; }; \
 	version='$(VERSION)'; \
 	confirm=false; \
@@ -64,7 +69,7 @@ deploy:
 	  confirm=true; \
 	fi; \
 	printf '%s' "$$version" | grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$$' || { echo 'VERSION must be strict SemVer, for example v1.2.3' >&2; exit 2; }; \
-	sh scripts/deploy-drift.sh "$$version" || true; \
+	if [ '$(LOCAL_BUILD)' != yes ]; then sh scripts/deploy-drift.sh "$$version" || true; fi; \
 	token_file='$(DISCORD_TOKEN_FILE)'; \
 	[ -n "$$token_file" ] || { echo 'Set DISCORD_TOKEN_FILE in .env or on the make command line' >&2; exit 2; }; \
 	[ -f "$$token_file" ] || { echo 'DISCORD_TOKEN_FILE does not exist' >&2; exit 2; }; \
@@ -74,15 +79,22 @@ deploy:
 	trap 'rm -rf "$$tmp_dir"' EXIT; \
 	trap 'exit 130' INT; \
 	trap 'exit 143' HUP TERM; \
-	asset_url="https://github.com/$(REPOSITORY)/releases/download/$$version/infoe-bots-linux-amd64"; \
-	echo "Downloading $$version release assets..."; \
-	curl --fail --location --silent --show-error --proto '=https' --tlsv1.2 --output "$$tmp_dir/infoe-bots-linux-amd64" "$$asset_url"; \
-	curl --fail --location --silent --show-error --proto '=https' --tlsv1.2 --output "$$tmp_dir/infoe-bots-linux-amd64.sha256" "$$asset_url.sha256"; \
+	if [ '$(LOCAL_BUILD)' = yes ]; then \
+	  echo 'Building the current working tree for local deployment...'; \
+	  CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w -buildid= -X github.com/infoe-labs/infoe-bots/cli.Version=$$version" -o "$$tmp_dir/infoe-bots-linux-amd64" .; \
+	  (cd "$$tmp_dir" && sha256sum infoe-bots-linux-amd64 > infoe-bots-linux-amd64.sha256); \
+	else \
+	  sh scripts/wait-release.sh '$(REPOSITORY)' "$$version"; \
+	  asset_url="https://github.com/$(REPOSITORY)/releases/download/$$version/infoe-bots-linux-amd64"; \
+	  echo "Downloading $$version release assets..."; \
+	  curl --fail --location --silent --show-error --proto '=https' --tlsv1.2 --output "$$tmp_dir/infoe-bots-linux-amd64" "$$asset_url"; \
+	  curl --fail --location --silent --show-error --proto '=https' --tlsv1.2 --output "$$tmp_dir/infoe-bots-linux-amd64.sha256" "$$asset_url.sha256"; \
+	fi; \
 	echo 'Verifying checksum and embedded version...'; \
 	(cd "$$tmp_dir" && sha256sum --check infoe-bots-linux-amd64.sha256); \
 	chmod 755 "$$tmp_dir/infoe-bots-linux-amd64"; \
 	actual_version=$$("$$tmp_dir/infoe-bots-linux-amd64" --version); \
-	[ "$$actual_version" = "infoe version $$version" ] || { echo "Downloaded binary reports unexpected version: $$actual_version" >&2; exit 1; }; \
+	[ "$$actual_version" = "infoe version $$version" ] || { echo "Deployment binary reports unexpected version: $$actual_version" >&2; exit 1; }; \
 	if [ "$$confirm" = true ]; then \
 	  checksum=$$(cut -d ' ' -f 1 "$$tmp_dir/infoe-bots-linux-amd64.sha256"); \
 	  printf 'Deploy latest release %s (sha256:%s)? [y/N] ' "$$version" "$$checksum"; \

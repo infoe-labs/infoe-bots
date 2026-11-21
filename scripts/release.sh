@@ -306,7 +306,7 @@ main() {
 
 	printf '\nTagged %s and pushed it to %s.\n' "$next" "$ORIGIN"
 	printf 'The Publish release workflow builds and attests the binary, then opens\n'
-	printf 'the GitHub Release. Once it succeeds, deploy with:\n\n'
+	printf 'the GitHub Release. Deploy waits for publication automatically:\n\n'
 	printf '  make deploy VERSION=%s\n' "$next"
 	return 0
 }
