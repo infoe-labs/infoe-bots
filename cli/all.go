@@ -5,6 +5,7 @@ import (
 
 	"github.com/infoe-labs/infoe-bots/lib/discord"
 	"github.com/infoe-labs/infoe-bots/lib/llmpromoter"
+	"github.com/infoe-labs/infoe-bots/lib/messagepreview"
 	"github.com/infoe-labs/infoe-bots/lib/ping"
 	"github.com/infoe-labs/infoe-bots/lib/urlsanitizer"
 	"github.com/spf13/cobra"
@@ -23,6 +24,7 @@ var allCmd = &cobra.Command{
 			// no-analytics mode, so urlstripper needs no handler of its own here.
 			urlsanitizer.HandleMessage,
 			urlsanitizer.HandleReactionAdd,
+			messagepreview.HandleMessage,
 			llmpromoter.HandleMessage,
 			llmpromoter.HandleReactionAdd,
 		)
